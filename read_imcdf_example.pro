@@ -137,25 +137,33 @@ end
 ; :return:
 ;   value found in zvariables and meta is a hash with all the attributes defined
 ;-
-function intermagnetcdf::getData, element, metadata = metadata
+function intermagnetcdf::getData, element, metadata = metadata, datetime=datetime
   compile_opt idl2
   
-  ; clear metadata
+  ; clear metadata and datetimes
   metadata = hash()
+  datetime = []
+  
   inq = cdf_inquire(*(self.cdfid))
   ; Read all the variable attribute entries.
   ; Walk through all of the zVariables
   for varNum = 0, inq.nzvars-1 do begin
-    ; find the one with the matching element
-    cdf_attget_entry, *(self.cdfid), 'LABLAXIS', varNum, attType, value, status, /zvariable
+    ; only read if the LABLAXIS is set
+    if ~cdf_attexists(*(self.cdfid), 'LABLAXIS', varNum, /zvariable) then continue
+    
+    cdf_attget_entry, *(self.cdfid), 'LABLAXIS', varNum, attType, cdf_label, status, /zvariable
     if status ne 1 then continue
-    print, value
-    if strcmp(value, element, /fold_case) then begin
-      ;var_inq = cdf_varinq(*(self.cdfid), varNum, /zvariable)
-      ;help, var_inq, /structure
-      cdf_varget, *(self.cdfid), varNum, values, /zvariable
+    if strcmp(cdf_label, element, /fold_case) then begin
+      cdf_control, *(self.cdfid), variable=varNum, /zvariable, get_var_info=var_inq
+      cdf_varget, *(self.cdfid), varNum, values, /zvariable, rec_count = var_inq.maxrecs
       
-      ; get all the attributes and add tehm to props
+      ; get associated times if there are any
+      if cdf_attexists(*(self.cdfid), 'DEPEND_0', varNum, /zvariable) then begin
+        cdf_attget_entry, *(self.cdfid), 'DEPEND_0', varNum, attType, cdf_depend, status, /zvariable
+        cdf_varget, *(self.cdfid), cdf_depend, datetime, /zvariable, rec_count = var_inq.maxrecs
+      endif
+      
+      ; get all the attributes and add them to the metadata
       for attrNum = 0, inq.natts-1 do begin
         ; Read the variable attribute
         cdf_attget_entry, *(self.cdfid), attrNum, varNum, attType, value, $
@@ -205,11 +213,11 @@ print, 'IAGA Code: ', cdf.getIagaCode()
 print, 'Publication Date: ', cdf_encode_epoch(cdf.getPublicationDate())
 print, 'Parent Identifiers: ', cdf.getParentIdentifiers()
 print, 'Reference Links: ', cdf.getReferenceLinks()
-print, 'H data', cdf.getData('h', metadata=metadata)
+
+data =  cdf.getData('h', metadata=metadata, datetime=datetime)
+print, 'First 10 H data', data[0:10]
+print, 'First 10 timestamps as epoch', datetime[0:10]
 print, metadata
-print, 'D data', cdf.getData('d', metadata=metadata)
-print, metadata
-print, 'Z data', cdf.getData('z', metadata=metadata)
-print, metadata
+
 cdf.close
 end
